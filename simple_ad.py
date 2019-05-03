@@ -9,7 +9,7 @@ class ActiveDirectory:
     """
     Impliments Active Directory lookups
     """
-    def __init__(self, server=None, user=None, password=None):
+    def __init__(self, server=None, user=None, password=None, search_base=None):
         """
         Init method, binds to Active Directory and tests for connection.
 
@@ -29,6 +29,12 @@ class ActiveDirectory:
             if 'AD_PASSWORD' in os.environ:
                 password = os.environ.get('AD_PASSWORD')
 
+        if search_base is None:
+            if 'AD_SEARCH_BASE' in os.environ:
+                self.search_base = os.environ.get('AD_SEARCH_BASE')
+            else:
+                self.search_base = self.guess_root_dn(server)
+
         self.server = Server(server, get_info=ALL, use_ssl=True)
         self.conn = Connection(self.server,
                                user=user,
@@ -47,38 +53,81 @@ class ActiveDirectory:
         logger.debug('Binding to Active Directory.')
         if self.conn.extend.standard.who_am_i():
             logger.info('AD connection established, user: {}'.format(self.conn.extend.standard.who_am_i()))
+            return True
         else:
             logger.error('AD whoami returned None. Check username / password are valid')
             exit(-1)
 
-    def get_members(self, group_name, search_base):
+    def guess_root_dn(self, ad_server):
+        x = ad_server.split('.')
+        x.pop(0)
+        y = ""
+        for i in x:
+            y = y + ',DC={}'.format(i)
+
+        z = y.lstrip(',')
+        return z
+
+    def _do_search(self, search_filter, dn=None):
+
+        if dn:
+            search_base = dn
+        else:
+            search_base = self.search_base
+
+        try:
+            u = self.conn.search(
+                search_base=search_base,
+                search_filter=search_filter,
+                search_scope=SUBTREE,
+                attributes=ALL_ATTRIBUTES,
+                paged_size=5,
+                size_limit=0
+            )
+
+            if u:
+                if self.conn.entries.__len__() > 0:
+                    logger.debug('Found {} matching record in directory'.format(self.conn.entries.__len__()))
+                    entries = self.conn.entries[0]
+
+            return entries
+
+        except Exception as e:
+            logger.error(e)
+
+    def get_user_by_samaccountname(self, username):
+            search_filter = '(&(objectClass=Person)(sAMAccountName={}))'.format(username)
+            u = self._do_search(search_filter=search_filter)
+            return u
+
+    def get_user_by_cn(self, cn):
+        search_filter = '(&(objectClass=Person)(cn={}))'.format(cn)
+        u = self._do_search(search_filter=search_filter)
+        return u
+
+    def get_user_by_dn(self, dn):
+        search_filter = '(&(objectClass=Person)'
+        search_base = dn
+        u = self._do_search(search_filter=search_filter, search_base=search_base)
+        return u
+
+    def get_group(self, group_name):
         """
         Fetches a list of users that belong to a group
 
         :param group_name: Group name to search for
-        :param search_base: Distinguished Name path to start search from
         :return: list
         """
+        group = None
 
-        # Default member_list
-        member_list = {'groupname': group_name, 'isADGroup': False, 'members': ''}
-        logger.debug('get_members group_name: {}'.format(group_name))
-
-        g = self.conn.search(
-            search_base=search_base,
-            search_filter='(&(objectClass=group)(cn={}))'.format(group_name),
-            search_scope=SUBTREE,
-            paged_size=5,
-            attributes=['member'], size_limit=0
-        )
+        search_filter = '(&(objectClass=group)(cn={}))'.format(group_name),
+        g = self._do_search(search_filter=search_filter)
 
         if g:
             if self.conn.entries.__len__() > 0:
-                dn = self.conn.entries[0].entry_dn
-                members = self.conn.entries[0].member.values
-                member_list = {'groupname': group_name, 'isADGroup': True, 'members': members}
+                group = self.conn.entries[0]
 
-        return member_list
+        return group
 
     def isaduser(self, search_base, **kwargs):
         """
@@ -257,32 +306,6 @@ class ActiveDirectory:
         except Exception as ex:
             logger.warning('Could not find attribute {} for {}'.format(attribute,object['cn']))
             return False
-
-    def get_ad_group_drilldown(self, group_list, search_base):
-        """
-        Collects group member report attributes for multiple groups simultaneously.
-
-        :param group_list: list of groups to look search
-        :param search_base: distinguished name of search base
-        :return: list of dicts
-        """
-
-        report_list = []
-        for group in group_list:
-            logger.debug('Group: {}'.format(group))
-            user_report = []
-            logger.debug(type(user_report))
-            group_members = self.get_members(group, search_base)
-            if group_members['members'].__len__() > 0:
-                for member in group_members['members']:
-                    logger.debug('Member: {}'.format(member))
-                    r = self.get_user_report_attributes(user_search_base=member)
-                    logger.debug('Report: {}'.format(r))
-                    user_report.append(r)
-
-            report_list.append({'group': group, 'isADGroup': group_members['isADGroup'], 'member_detail': user_report})
-
-        return report_list
 
     def calculate_useraccountcontrol(self,account_int):
         """
