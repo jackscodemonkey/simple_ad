@@ -75,6 +75,7 @@ class ActiveDirectory:
         else:
             search_base = self.search_base
 
+        logger.info(search_base)
         try:
             u = self.conn.search(
                 search_base=search_base,
@@ -93,7 +94,7 @@ class ActiveDirectory:
             return entries
 
         except Exception as e:
-            logger.error(e)
+            logger.error('ERROR: {}'.format(e))
 
     def get_user_by_samaccountname(self, username):
             search_filter = '(&(objectClass=Person)(sAMAccountName={}))'.format(username)
