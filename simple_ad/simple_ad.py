@@ -1,7 +1,11 @@
+#!/usr/bin/env python
+
 from ldap3 import Server, Connection, ALL, NTLM, SUBTREE, ALL_ATTRIBUTES
 import logging
 import os
 import traceback
+import argparse
+import getpass
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,7 @@ class ActiveDirectory:
                 size_limit=0
             )
 
+            entries = None
             if u:
                 if self.conn.entries.__len__() > 0:
                     logger.debug('Found {} matching record in directory'.format(self.conn.entries.__len__()))
@@ -174,3 +179,71 @@ class ActiveDirectory:
             if int(k) == account_int:
                 return v
         return account_int
+
+
+def run():
+    scriptargs = configure()
+    if scriptargs:
+        if scriptargs.environ:
+            a = ActiveDirectory()
+        else:
+            passwd = getpass.getpass('Active Directory Bind account password: ')
+            if scriptargs.server is None:
+                print("Server is a required parameter.")
+                exit(-1)
+            if scriptargs.username is None:
+                print("Username is a required parameter")
+                exit(-1)
+            if scriptargs.search_base is None:
+                print("Guessing the search base based on the server name.")
+                a = ActiveDirectory(server=scriptargs.server, user=scriptargs.username, password=passwd)
+            else:
+                a = ActiveDirectory(server=scriptargs.server, user=scriptargs.username,
+                                    search_base=scriptargs.search_base, password=passwd)
+
+    search_type = input('Search User or Group [u|g]: ')
+
+    if search_type.lower() == 'user' or search_type.lower() == 'u':
+        print('1. Search by samAccountName')
+        print('2. Search by cn')
+        print('3. Search by dn')
+        search_number = input('Search by number: ')
+        search_string = input('Search string: ')
+
+        data = None
+        if int(search_number) == 1:
+            data = a.get_user_by_samaccountname('{}'.format(search_string))
+        if int(search_number) == 2:
+            data = a.get_user_by_cn('{}'.format(search_string))
+        if int(search_number) == 3:
+            data=a.get_user_by_dn('{}'.format(search_string))
+
+    if search_type.lower() == 'group' or search_type.lower() == 'g':
+        group_name = input('Group Name: ')
+        data = a.get_group('{}'.format(group_name))
+
+    filter_attr = input("Filter Attribute (enter for ALL): ")
+    if filter_attr:
+        if filter_attr in data:
+            for i in sorted(data[filter_attr]):
+                print(i)
+        else:
+            print("Attribute {} does not exist in the object".format(filter_attr))
+    else:
+        print(data)
+
+def configure():
+    parser = argparse.ArgumentParser('Simple wrapper for python-ldap3 for common AD searches.')
+    parser.add_argument('--server',help='Active Directory Domain Controller to connect to.')
+    parser.add_argument('--username', help='Active Directory Bind User. Format of "domain\\username".')
+    parser.add_argument('--search_base', help='LDAP search path to limit queries to.')
+    parser.add_argument('--environ', help='User Environment Variables to set script parameters. Overrides all others.',
+                        action='store_true')
+
+    args = parser.parse_args()
+
+    return args
+
+
+if __name__ == "__main__":
+    run()

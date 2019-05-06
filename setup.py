@@ -8,5 +8,6 @@ setup(
     author_email='marcus.robb@initworx.com',
     url='www.initworx.com',
     install_requires=['ldap3','pytest'],
-    packages=['simple_ad']
+    packages=['simple_ad'],
+    scripts=['simple_ad/simple_ad.py'],
 )
