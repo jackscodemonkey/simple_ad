@@ -7,14 +7,12 @@ import traceback
 import argparse
 import getpass
 
-logger = logging.getLogger(__name__)
-
 
 class ActiveDirectory:
     """
     Impliments Active Directory lookups
     """
-    def __init__(self, server=None, user=None, password=None, search_base=None):
+    def __init__(self, server=None, user=None, password=None, search_base=None, loglevel=None):
         """
         Init method, binds to Active Directory and tests for connection.
 
@@ -22,6 +20,12 @@ class ActiveDirectory:
         :param user: AD user with read access to the directory in the form of DOMAIN\\USER
         :param password: AD user password
         """
+        self.logger = logging.getLogger(__name__)
+        logging.basicConfig(level=logging.INFO, format='%(message)s')
+
+        if loglevel == 'DEBUG':
+            logging.getLogger().setLevel(logging.DEBUG)
+
         if server is None:
             if 'AD_SERVER' in os.environ:
                 server = os.environ.get('AD_SERVER')
@@ -53,14 +57,14 @@ class ActiveDirectory:
 
     def _bind_ad(self):
         self.conn.open()
-        logger.debug('Connecting to Active Directory server {}.'.format(self.server))
+        self.logger.debug('Connecting to Active Directory server {}.'.format(self.server))
         self.conn.bind()
-        logger.debug('Binding to Active Directory.')
+        self.logger.debug('Binding to Active Directory.')
         if self.conn.extend.standard.who_am_i():
-            logger.info('AD connection established, user: {}'.format(self.conn.extend.standard.who_am_i()))
+            self.logger.info('AD connection established, user: {}'.format(self.conn.extend.standard.who_am_i()))
             return True
         else:
-            logger.error('AD whoami returned None. Check username / password are valid')
+            self.logger.error('AD whoami returned None. Check username / password are valid')
             exit(-1)
 
     def guess_root_dn(self, ad_server):
@@ -80,7 +84,7 @@ class ActiveDirectory:
         else:
             search_base = self.search_base
 
-        logger.debug(search_base)
+        self.logger.debug(search_base)
         try:
             u = self.conn.search(
                 search_base=search_base,
@@ -94,13 +98,13 @@ class ActiveDirectory:
             entries = None
             if u:
                 if self.conn.entries.__len__() > 0:
-                    logger.debug('Found {} matching record in directory'.format(self.conn.entries.__len__()))
+                    self.logger.debug('Found {} matching record in directory'.format(self.conn.entries.__len__()))
                     entries = self.conn.entries[0]
 
             return entries
 
         except Exception as e:
-            logger.error('ERROR: {} \n {}'.format(e, traceback.print_tb(e.__traceback__)))
+            self.logger.error('ERROR: {} \n {}'.format(e, traceback.print_tb(e.__traceback__)))
 
     def get_user_by_samaccountname(self, username):
             search_filter = '(&(objectClass=Person)(sAMAccountName={}))'.format(username)
@@ -132,7 +136,8 @@ class ActiveDirectory:
         if g:
             if self.conn.entries.__len__() > 0:
                 group = self.conn.entries[0]
-
+        else:
+            self.logger.error('LDAP group {} not found.'.format(group_name))
         return group
 
     def get_group_members(self, group_name):
@@ -158,7 +163,7 @@ class ActiveDirectory:
             else:
                 return False
         except Exception as ex:
-            logger.warning('Could not find attribute {} for {}'.format(attribute,object['cn']))
+            self.logger.warning('Could not find attribute {} for {}'.format(attribute,object['cn']))
             return False
 
     def calculate_useraccountcontrol(self,account_int):
@@ -221,6 +226,8 @@ def run():
     if search_type.lower() == 'group' or search_type.lower() == 'g':
         group_name = input('Group Name: ')
         data = a.get_group('{}'.format(group_name))
+        if not data:
+            exit(-1)
 
     filter_attr = input("Filter Attribute (enter for ALL): ")
     if filter_attr:
